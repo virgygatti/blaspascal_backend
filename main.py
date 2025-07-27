@@ -1,6 +1,7 @@
 from typing import Union, List
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import engine
 from . import models, schemas, database
@@ -13,6 +14,15 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# Configuración de CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # URLs del frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # =====================
 # Utilidades de seguridad y autenticación
@@ -99,11 +109,21 @@ def login(form_data: schemas.UsuarioLogin, db: Session = Depends(database.get_db
     access_token = create_access_token(data={"sub": user.correo}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/libros", response_model=List[schemas.LibroResponse])
+@app.get("/libros")
 def listar_libros(skip: int = 0, limit: int = 10, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(get_current_user)):
     """Lista los libros del usuario autenticado, con paginación."""
+    # Obtener el total de libros del usuario
+    total_books = db.query(models.Libro).filter(models.Libro.propietario_id == current_user.id).count()
+    
+    # Obtener los libros de la página actual
     libros = db.query(models.Libro).filter(models.Libro.propietario_id == current_user.id).offset(skip).limit(limit).all()
-    return libros
+    
+    return {
+        "books": libros,
+        "total": total_books,
+        "page": skip // limit,
+        "per_page": limit
+    }
 
 @app.post("/libros", response_model=schemas.LibroResponse)
 def crear_libro(libro: schemas.LibroCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(get_current_user)):
